@@ -10,7 +10,9 @@
 #include "util.h"
 #include "display.h"
 
-uint8_t rdbuf[16];
+#define BUFLEN 0x20
+#define BUFMASK (BUFLEN-1)
+uint8_t rdbuf[BUFLEN];
 volatile uint8_t ri;
 volatile uint8_t wi;
 
@@ -22,7 +24,7 @@ ISR(TIMER0_COMPA_vect)
 ISR(USART_RX_vect)
 {
 	uint8_t tmp = UDR0;
-	uint8_t look = (uint8_t) ((wi + 1) & 0xf);
+	uint8_t look = (uint8_t) ((wi + 1) & BUFMASK);
 	if (look != ri) {
 		rdbuf[look] = tmp;
 		barrier();
@@ -80,8 +82,10 @@ void place_text(uint8_t msg)
 		++pos;
 		break;
 	default:
-		display_char(msg, pos);
-		pos = (uint8_t) (pos + 4U);
+		if (msg > 0x20 && msg < 0x7f) {
+			display_char(msg, pos);
+			pos = (uint8_t) (pos + 4U);
+		}
 		break;
 	}
 }
@@ -91,7 +95,7 @@ void read_input(void)
 {
 	uint8_t ch;
 	if (ri != wi) {
-		uint8_t look = (uint8_t) ((ri + 1) & 0xf);
+		uint8_t look = (uint8_t) ((ri + 1) & BUFMASK);
 		ch = rdbuf[look];
 		barrier();
 		ri = look;
@@ -105,8 +109,8 @@ void main(void)
 {
 	uint8_t lt = 0U;
 
-	/* init ~18Hz timer */
-	OCR0A = 110U;
+	/* init timer */
+	OCR0A = 95U;
 	TCCR0A = _BV(WGM01);
 	TCCR0B = _BV(CS02) | _BV(CS00);
 	TIMSK0 |= _BV(OCIE0A);
