@@ -13,17 +13,16 @@
 #define SPI_CS		2
 #define SPI_COPI	3
 #define SPI_SCK		5
-#define DISPLAY_COLPWR	3
-#define DISPLAY_COLOVER (DISPLAY_COLS + DISPLAY_COLPWR + 1)
+#define DISPLAY_COLOVER (DISPLAY_COLS + 4)
 
 struct display_stat display;
 
 /* fetch the byte offset in request for the provided group, panel and line */
 uint8_t req_offset(uint8_t group, uint8_t panel, uint8_t line)
 {
-	uint8_t goft = (uint8_t) ((DISPLAY_GROUPS - UINT8_C(1)) - group);
-	uint8_t poft = (uint8_t) ((DISPLAY_PPG - UINT8_C(1)) - panel);
-	uint8_t loft = (uint8_t) ((DISPLAY_BPP - UINT8_C(1)) - line);
+	uint8_t goft = (uint8_t) ((DISPLAY_GROUPS - 1) - group);
+	uint8_t poft = (uint8_t) ((DISPLAY_PPG - 1) - panel);
+	uint8_t loft = (uint8_t) ((DISPLAY_BPP - 1) - line);
 	/* number of panels to skip + line offset */
 	return (uint8_t) ((goft * DISPLAY_PPG + poft) * DISPLAY_BPP + loft);
 }
@@ -210,12 +209,15 @@ void display_tick(void)
 	static uint8_t ck = 0U;
 	if (bit_is_set(DISPLAY_STAT, DISBSY)) {
 		req_setcol(ck);
-		req_clearcol((uint8_t) (ck - DISPLAY_COLPWR));
+		req_clearcol((uint8_t)(ck - 4));
+
 		req_transfer();
 		req_latch();
+
 		ck++;
 		if (ck >= DISPLAY_COLOVER) {
 			DISPLAY_STAT = 0U;
+			display_relax();
 		}
 	} else {
 		if (bit_is_set(DISPLAY_STAT, DISUPD)) {
