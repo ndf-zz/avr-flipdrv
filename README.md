@@ -34,7 +34,7 @@ Flash display, show "Hi!", then clear display:
 
 	$ echo -en '\x07   Hi!\n\x0c' > /dev/ttyUSB0
 
-<video height="240" src="https://github.com/ndf-zz/avr-flipdrv/raw/main/example.mp4"></video>
+https://github.com/ndf-zz/avr-flipdrv/raw/main/example.mp4
 
 ## Requirements
 
