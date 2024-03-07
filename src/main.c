@@ -10,6 +10,7 @@
 #include "util.h"
 #include "display.h"
 
+#define NAK 0x15;
 #define BUFLEN 0x20
 #define BUFMASK (BUFLEN-1)
 uint8_t rdbuf[BUFLEN];
@@ -23,10 +24,16 @@ ISR(TIMER0_COMPA_vect)
 
 ISR(USART_RX_vect)
 {
+	uint8_t status = UCSR0A;
+	barrier();
 	uint8_t tmp = UDR0;
 	uint8_t look = (uint8_t) ((wi + 1) & BUFMASK);
 	if (look != ri) {
-		rdbuf[look] = tmp;
+		if (status & (_BV(FE0) | _BV(DOR0))) {
+			rdbuf[look] = NAK;
+		} else {
+			rdbuf[look] = tmp;
+		}
 		barrier();
 		wi = look;
 	}	// ignore overrun input
@@ -48,6 +55,10 @@ void place_text(uint8_t msg)
 		display_clear();
 	}
 	switch (msg) {
+	case 0x04:
+		// EOT
+		display_trigger();
+		break;
 	case 0x07:
 		// Bell
 		display_fill(0xff);
