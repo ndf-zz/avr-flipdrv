@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: MIT
+
 # Example clock for flipdot display
 
 import serial
 from time import sleep
 from datetime import datetime
 
-p = serial.Serial('/dev/ttyUSB0', 9600, rtscts=False, timeout=0.2)
-p.write(b' [\x08\x08> CK\n')
+p = serial.Serial('/dev/ttyUSB0', 9600, rtscts=False)
+p.write(b'\x07 [\x08\x08> CK\n')
 lt = None
 while True:
     nt = datetime.now()
