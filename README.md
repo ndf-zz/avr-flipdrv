@@ -18,11 +18,23 @@ from USB serial, using an Arduino Nano.
    - Carriage Return (0x0d): Return
    - Space (0x20): Move forward 1 column
 
+Note: On the Arduino Nano, DTR is wired to MCU reset. To avoid
+inadvertently resetting the MCU when opening a serial port,
+use stty to disable sending hangup signal eg:
+
+	$ stty -hup </dev/ttyUSB0
+
+Alternatively, de-solder 100nF capacitor C4 between 'RESET'
+and 'DTR#' on the underside of the PCB to permanently
+disconnect DTR.
+
 ## Example
 
-Flash display, show "Hw!", then clear display:
+Flash display, show "Hi!", then clear display:
 
-	$ echo -en '\x07  Hw!\n\x0c' > /dev/ttyUSB0
+	$ echo -en '\x07   Hi!\n\x0c' > /dev/ttyUSB0
+
+<video height="240" src="example.mp4"></video>
 
 ## Requirements
 
