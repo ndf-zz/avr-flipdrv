@@ -5,10 +5,15 @@
  *
  * Charset:
  * 
- * 	 !"#$%&'()*+,-./
+ * 	 !"#$%+'()*+,-./	[1,2]
  *	0123456789:;<=>?
  *	@ABCDEFGHIJKLMNO
- *	PQRSTUVWXYZ[\]^_
+ *	PQRSTUVWXYZ[|]^_	[3]
+ *
+ * Notes:
+ *	1. Hash is represented by inverse checker board fill
+ *	2. Ampersand is represented by plus '+'
+ * 	3. Vertical bar '|' replaces backslash '\'
  *
  * Layout:
  *
