@@ -10,6 +10,8 @@
 #include "util.h"
 #include "display.h"
 
+#define SYSTICK GPIOR1
+
 #define NAK 0x15;
 #define BUFLEN 0x20
 #define BUFMASK (BUFLEN-1)
@@ -19,7 +21,7 @@ volatile uint8_t wi;
 
 ISR(TIMER0_COMPA_vect)
 {
-	++GPIOR1;
+	++SYSTICK;
 }
 
 ISR(USART_RX_vect)
@@ -62,6 +64,7 @@ void place_text(uint8_t msg)
 	case 0x07:
 		// Bell
 		display_fill(0xff);
+		display_flush();
 		pos = 0U;
 		display_trigger();
 		break;
@@ -73,6 +76,10 @@ void place_text(uint8_t msg)
 		// Tab
 		pos = (uint8_t)(pos + 4U);
 		break;
+	case 0x10:
+		// Data Link Escape
+		display_flush();
+		break;
 	case 0x0a:
 		// Line Feed
 		pos = 0U;
@@ -82,6 +89,7 @@ void place_text(uint8_t msg)
 		// Form Feed
 		pos = 0U;
 		display_clear();
+		display_flush();
 		display_trigger();
 		break;
 	case 0x0d:
@@ -96,6 +104,9 @@ void place_text(uint8_t msg)
 		if (msg > 0x20 && msg < 0x7f) {
 			display_char(msg, pos);
 			pos = (uint8_t) (pos + 4U);
+		} else if ((msg&0xe0) == 0x80) {
+			display_data(msg, pos);
+			++pos;
 		}
 		break;
 	}
@@ -121,7 +132,7 @@ void main(void)
 	uint8_t lt = 0U;
 
 	/* init timer */
-	OCR0A = 95U;
+	OCR0A = 96U;
 	TCCR0A = _BV(WGM01);
 	TCCR0B = _BV(CS02) | _BV(CS00);
 	TIMSK0 |= _BV(OCIE0A);
@@ -134,14 +145,15 @@ void main(void)
 	sei();
 
 	display_init();
+	display_flush();
 	display_trigger();
 	do {
 		sleep_mode();
-		if (GPIOR1 != lt) {
-			lt = GPIOR1;
+		if (SYSTICK != lt) {
+			lt = SYSTICK;
 			display_tick();
 		}
-		if (!DISPLAY_STAT) {
+		if (!(DISPLAY_STAT & (_BV(DISBSY)|_BV(DISUPD)))) {
 			read_input();
 		}
 	} while (1);

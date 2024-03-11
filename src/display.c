@@ -13,7 +13,8 @@
 #define SPI_CS		2
 #define SPI_COPI	3
 #define SPI_SCK		5
-#define DISPLAY_COLOVER (DISPLAY_COLS + 4)
+#define DISPLAY_COLPOWER 4
+#define DISPLAY_COLOVER (DISPLAY_COLS + DISPLAY_COLPOWER)
 
 struct display_stat display;
 
@@ -34,8 +35,8 @@ void shift_byte(uint8_t val)
 	loop_until_bit_is_set(SPSR, SPIF);
 }
 
-/* transfer request buffer to display */
-void req_transfer(void)
+/* send current request buffer to display */
+void req_send(void)
 {
 	uint8_t cnt = 0;
 	do {
@@ -71,19 +72,22 @@ uint8_t setclr_pattern(uint8_t val, uint8_t mask)
 	return (uint8_t) ret;
 }
 
+/* write group line updates to request */
 void update_group(uint8_t goft, uint8_t line)
 {
 	uint8_t bufoft = (uint8_t) (line * DISPLAY_GROUPS + goft);
 	uint8_t src = display.buf[bufoft];
-	uint8_t mask = 0xff;
+	uint8_t mask = src ^ display.cur[bufoft];
 	uint8_t roft;
 
 	roft = req_offset(goft, 0, line);
 	display.req[roft] = setclr_pattern(src, mask);
 	roft = req_offset(goft, 1, line);
 	display.req[roft] = setclr_pattern(src >> 4, mask >> 4);
+	display.cur[bufoft] = display.buf[bufoft];
 }
 
+/* write group column updates to request */
 void update_column(uint8_t col)
 {
 	uint8_t goft = col >> 3;	/* group offset */
@@ -99,18 +103,20 @@ void update_column(uint8_t col)
 	do {
 		srcoft = (uint8_t) (line * DISPLAY_GROUPS + goft);
 		src = display.buf[srcoft];
-		mask = srcmask;
+		mask = srcmask & (src ^ display.cur[srcoft]);
 		roft = req_offset(goft, poft, line);
 		display.req[roft] |=
 		    setclr_pattern((uint8_t) (src >> shift),
 				   (uint8_t) (mask >> shift));
+		display.cur[srcoft] &= (uint8_t)(~srcmask);
+		display.cur[srcoft] |= src & srcmask;
 		line++;
 	} while (line < DISPLAY_LINES);
 
 }
 
 /* transfer a single line of changes from buf into req */
-void req_setline(uint8_t line)
+void req_power_line(uint8_t line)
 {
 	/* for each group of panels */
 	uint8_t goft = 0;
@@ -121,15 +127,15 @@ void req_setline(uint8_t line)
 }
 
 /* transfer a single column of changes from buf into req */
-void req_setcol(uint8_t col)
+void req_power_col(uint8_t col)
 {
 	if (col < DISPLAY_COLS) {
 		update_column(col);
 	}
 }
 
-/* clear single line in display request */
-void req_clearline(uint8_t line)
+/* relax single line in display request */
+void req_relax_line(uint8_t line)
 {
 	/* for each group of panels */
 	uint8_t roft;
@@ -146,12 +152,12 @@ void req_clearline(uint8_t line)
 	} while (goft < DISPLAY_GROUPS);
 }
 
-/* clear a single column in display request */
-void req_clearcol(uint8_t col)
+/* relax a single column in display request */
+void req_relax_col(uint8_t col)
 {
 	if (col < DISPLAY_COLS) {
-		uint8_t goft = col >> 3;	/* group offset col/8 */
-		uint8_t coft = col & 0x7U;	/* column offset in group col%8 */
+		uint8_t goft = col >> 3;	/* group offset */
+		uint8_t coft = col & 0x7U;	/* column offset in group */
 		uint8_t poft = coft >> 2;	/* panel offset in group */
 		uint8_t pcoft = coft & 0x3U;	/* column offset on panel */
 		uint8_t shift = (uint8_t) (pcoft << 1);	/* shift req mask */
@@ -166,8 +172,8 @@ void req_clearcol(uint8_t col)
 	}
 }
 
-/* clear display request */
-void req_clear(void)
+/* relax all coils in display request */
+void req_relax(void)
 {
 	uint8_t cnt = 0;
 	do {
@@ -182,24 +188,21 @@ void display_clear(void)
 	display_fill(0U);
 }
 
-/* prepare a full display update request */
-void display_set(void)
+/* Invalidate all pixels to force update */
+void display_invalidate(void)
 {
-	/* for each row */
-	uint8_t row = 0;
-	do {
-		req_setline(row);
-		row++;
-	} while (row < DISPLAY_LINES);
-	req_transfer();
-	req_latch();
+        uint8_t i = 0;
+        do {
+		display.cur[i] = (uint8_t)~display.buf[i];
+                i++;
+        } while (i < DISPLAY_BUFLEN);
 }
 
 /* prepare a full display relax request */
 void display_relax(void)
 {
-	req_clear();
-	req_transfer();
+	req_relax();
+	req_send();
 	req_latch();
 }
 
@@ -208,21 +211,23 @@ void display_tick(void)
 {
 	static uint8_t ck = 0U;
 	if (bit_is_set(DISPLAY_STAT, DISBSY)) {
-		req_setcol(ck);
-		req_clearcol((uint8_t)(ck - 4));
-
-		req_transfer();
-		req_latch();
-
-		ck++;
-		if (ck >= DISPLAY_COLOVER) {
+		if (ck > DISPLAY_COLOVER) {
+			req_relax();
 			DISPLAY_STAT = 0U;
-			display_relax();
+		} else {
+			req_power_col(ck);
+			if (ck >= DISPLAY_COLPOWER)
+				req_relax_col((uint8_t)(ck - DISPLAY_COLPOWER));
 		}
+		req_send();
+		req_latch();
+		ck++;
 	} else {
 		if (bit_is_set(DISPLAY_STAT, DISUPD)) {
-			ck = 0U;
+			if (bit_is_set(DISPLAY_STAT, DISFSH))
+				display_invalidate();
 			DISPLAY_STAT = _BV(DISBSY);
+			ck = 0U;
 		}
 	}
 }
@@ -249,6 +254,27 @@ void display_fill(uint8_t ch)
                 display.buf[i] = ch;
                 i++;
         } while (i < DISPLAY_BUFLEN);
+}
+
+/* Draw raw data at column */
+void display_data(uint8_t data, uint8_t col)
+{
+	uint8_t group;
+	uint8_t mask = (uint8_t)(1U << (col&0x7));
+	data &= 0x1f;
+	uint8_t poft;
+	uint8_t row;
+	if (col < DISPLAY_COLS) {
+		group = col >> 3U;
+		row = 4U;
+		do {
+			poft = (uint8_t) (group + row * DISPLAY_GROUPS);
+			if (data & 0x1)
+				display.buf[poft] |= mask;
+			data = data >> 1U;
+			row--;
+		} while (row < DISPLAY_LINES);
+	}
 }
 
 /* Draw character at column */

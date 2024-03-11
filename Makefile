@@ -127,7 +127,7 @@ fuse: Makefile
 
 .PHONY: clean
 clean:
-	-rm -f $(TARGET) $(OBJECTS) $(LISTFILES) $(TARGETLIST)
+	-rm -f $(TARGET) $(OBJECTS) $(TARGETLIST)
 
 .PHONY: requires
 requires:

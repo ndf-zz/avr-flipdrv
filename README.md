@@ -10,10 +10,12 @@ from USB serial, using an Arduino Nano.
 
    - USB Serial: 9600 baud, 8n1 (ftdi)
    - ASCII text (0x21-0x7f): Place character and move forward 4 columns
+   - 0x80 - 0x9f: Place lower 5 bits of character and move to next column
    - End of Transmission (0x04): Display current line
    - Bell (0x07): Flip all pixels on and Return
    - Backspace (0x08): Move back one column
    - Tab (0x09): Move forward 4 columns
+   - Data Link Escape (0x10): Flag update of all display pixels
    - Line Feed (0x0a): Display current line and Return
    - Form Feed (0x0c): Clear display and Return
    - Carriage Return (0x0d): Return

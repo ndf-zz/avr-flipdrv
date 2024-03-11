@@ -80,26 +80,26 @@
 
 /* status flag register */
 #define DISPLAY_STAT GPIOR0
-#define DISBSY 6
-#define DISUPD 7
+#define DISFSH 5
+#define DISUPD 6
+#define DISBSY 7
 
 /* display and panel update request data structures */
 struct display_stat {
 	uint8_t		buf[DISPLAY_BUFLEN];	/* CAIRO_FORMAT_A1 */
+	uint8_t		cur[DISPLAY_BUFLEN];
 	uint8_t		req[DISPLAY_REQLEN];
 };
 
-/* Convenience macro to trigger staged update */
+/* Convenience macros to set flags */
 #define display_trigger() do { GPIOR0 |= _BV(DISUPD) ; } while(0)
+#define display_flush() do { GPIOR0 |= _BV(DISFSH) ; } while(0)
 
 /* Clear the display buffer */
 void display_clear(void);
 
 /* Fill display buffer with ch */
 void display_fill(uint8_t ch);
-
-/* Power on all required pixel coils */
-void display_set(void);
 
 /* Un-power all pixel coils */
 void display_relax(void);
@@ -109,6 +109,9 @@ void display_tick(void);
 
 /* Place character at column */
 void display_char(uint8_t ch, uint8_t col);
+
+/* Place column of raw data */
+void display_data(uint8_t data, uint8_t col);
 
 /* Initialise display and relax all coils */
 void display_init(void);
