@@ -9,6 +9,7 @@ PROJECT = avr-flipdrv
 OBJECTS = src/main.o
 OBJECTS += src/font.o
 OBJECTS += src/display.o
+OBJECTS += src/ds3231.o
 
 # Target binary
 TARGET = $(PROJECT).elf
