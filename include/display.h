@@ -58,28 +58,40 @@
  *       right to left and then latching the shift register
  */
 
-/* number of 8bit panel groups (sets max display size) */
-#define DISPLAY_GROUPS	4
+/* panel dimensions*/
+#define PANEL_COLS	4
+#define PANEL_LINES	5
 
-/* display width & height */
+/* number of 4x5 panels in display */
+#define DISPLAY_PANELS	5
+
+/* number of 8bit panel groups ceil(DISPLAY_PANELS/2) */
+#define DISPLAY_GROUPS	((DISPLAY_PANELS + 1) / 2)
+
+/* cnumber of columns in a group */
 #define DISPLAY_GROUPCOLS	8
-#define DISPLAY_COLS	(DISPLAY_GROUPS * DISPLAY_GROUPCOLS)
-#define DISPLAY_LINES	5
+
+/* width of display buffer in memory */
+#define DISPLAY_WIDTH	(DISPLAY_GROUPS * DISPLAY_GROUPCOLS)
+
+/* number of columns on visible display */
+#define DISPLAY_COLS	(DISPLAY_PANELS * PANEL_COLS)
+
+/* number of lines on visible display */
+#define DISPLAY_LINES	PANEL_LINES
 
 /* panels per group */
-#define DISPLAY_PPG	2
-
-/* max number of panels in display */
-#define DISPLAY_PANELS	(DISPLAY_GROUPS * DISPLAY_PPG)
+#define DISPLAY_PPG	(DISPLAY_GROUPCOLS / PANEL_COLS)
 
 /* size of display pixel buffers */
-#define DISPLAY_BUFLEN	(DISPLAY_GROUPS * DISPLAY_LINES)
+#define DISPLAY_BUFLEN	(DISPLAY_WIDTH * DISPLAY_LINES)
 
 /* number of 8 bit (row) messages in panel update request string */
 #define DISPLAY_REQLEN	(DISPLAY_PANELS * DISPLAY_LINES)
 
 /* status flag register */
 #define DISPLAY_STAT GPIOR0
+#define DISABRT 4
 #define DISFSH 5
 #define DISUPD 6
 #define DISBSY 7
@@ -94,6 +106,7 @@ struct display_stat {
 /* Convenience macros to set flags */
 #define display_trigger() do { GPIOR0 |= _BV(DISUPD) ; } while(0)
 #define display_flush() do { GPIOR0 |= _BV(DISFSH) ; } while(0)
+#define display_abort() do { GPIOR0 |= _BV(DISABRT) ; } while(0)
 
 /* Clear the display buffer */
 void display_clear(void);

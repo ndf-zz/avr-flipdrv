@@ -13,6 +13,8 @@
 #define SPI_CS		2
 #define SPI_COPI	3
 #define SPI_SCK		5
+
+/* during update sweep, keep this many columns powered at a time */
 #define DISPLAY_COLPOWER 4
 #define DISPLAY_COLOVER (DISPLAY_COLS + DISPLAY_COLPOWER)
 
@@ -21,14 +23,13 @@ struct display_stat display;
 /* fetch the byte offset in request for the provided group, panel and line */
 uint8_t req_offset(uint8_t group, uint8_t panel, uint8_t line)
 {
-	uint8_t goft = (uint8_t) ((DISPLAY_GROUPS - 1) - group);
-	uint8_t poft = (uint8_t) ((DISPLAY_PPG - 1) - panel);
+	uint8_t poft =
+	    (uint8_t) ((DISPLAY_PANELS - 1) - (DISPLAY_PPG * group + panel));
 	uint8_t loft = (uint8_t) ((DISPLAY_BPP - 1) - line);
-	/* number of panels to skip + line offset */
-	return (uint8_t) ((goft * DISPLAY_PPG + poft) * DISPLAY_BPP + loft);
+	return (uint8_t) (poft * DISPLAY_BPP + loft);
 }
 
-/* Send byte to display register */
+/* Send byte to display via SPI */
 void shift_byte(uint8_t val)
 {
 	SPDR = val;
@@ -72,21 +73,6 @@ uint8_t setclr_pattern(uint8_t val, uint8_t mask)
 	return (uint8_t) ret;
 }
 
-/* write group line updates to request */
-void update_group(uint8_t goft, uint8_t line)
-{
-	uint8_t bufoft = (uint8_t) (line * DISPLAY_GROUPS + goft);
-	uint8_t src = display.buf[bufoft];
-	uint8_t mask = src ^ display.cur[bufoft];
-	uint8_t roft;
-
-	roft = req_offset(goft, 0, line);
-	display.req[roft] = setclr_pattern(src, mask);
-	roft = req_offset(goft, 1, line);
-	display.req[roft] = setclr_pattern(src >> 4, mask >> 4);
-	display.cur[bufoft] = display.buf[bufoft];
-}
-
 /* write group column updates to request */
 void update_column(uint8_t col)
 {
@@ -94,7 +80,7 @@ void update_column(uint8_t col)
 	uint8_t coft = col & 0x7U;	/* column offset in group */
 	uint8_t poft = coft >> 2;	/* panel offset in group */
 	uint8_t shift = col & 0x4U;	/* src shift for panel data */
-	uint8_t srcmask = (uint8_t) (0x1U << coft);	/* column to set/clear in src */
+	uint8_t srcmask = (uint8_t) (0x1U << coft);
 	uint8_t srcoft;
 	uint8_t src;
 	uint8_t roft;
@@ -108,22 +94,11 @@ void update_column(uint8_t col)
 		display.req[roft] |=
 		    setclr_pattern((uint8_t) (src >> shift),
 				   (uint8_t) (mask >> shift));
-		display.cur[srcoft] &= (uint8_t)(~srcmask);
+		display.cur[srcoft] &= (uint8_t) (~srcmask);
 		display.cur[srcoft] |= src & srcmask;
 		line++;
 	} while (line < DISPLAY_LINES);
 
-}
-
-/* transfer a single line of changes from buf into req */
-void req_power_line(uint8_t line)
-{
-	/* for each group of panels */
-	uint8_t goft = 0;
-	do {
-		update_group(goft, line);
-		goft++;
-	} while (goft < DISPLAY_GROUPS);
 }
 
 /* transfer a single column of changes from buf into req */
@@ -134,24 +109,6 @@ void req_power_col(uint8_t col)
 	}
 }
 
-/* relax single line in display request */
-void req_relax_line(uint8_t line)
-{
-	/* for each group of panels */
-	uint8_t roft;
-	uint8_t goft = 0;
-	do {
-		/* for each panel in group */
-		uint8_t poft = 0;
-		do {
-			roft = req_offset(goft, poft, line);
-			display.req[roft] = 0x0U;
-			poft++;
-		} while (poft < DISPLAY_PPG);
-		goft++;
-	} while (goft < DISPLAY_GROUPS);
-}
-
 /* relax a single column in display request */
 void req_relax_col(uint8_t col)
 {
@@ -160,8 +117,8 @@ void req_relax_col(uint8_t col)
 		uint8_t coft = col & 0x7U;	/* column offset in group */
 		uint8_t poft = coft >> 2;	/* panel offset in group */
 		uint8_t pcoft = coft & 0x3U;	/* column offset on panel */
-		uint8_t shift = (uint8_t) (pcoft << 1);	/* shift req mask */
-		uint8_t mask = (uint8_t) ~ (0x3U << shift);	/* req byte mask */
+		uint8_t shift = (uint8_t) (pcoft << 1);
+		uint8_t mask = (uint8_t) ~ (0x3U << shift);
 		uint8_t line = 0U;
 		uint8_t roft;
 		do {
@@ -191,11 +148,11 @@ void display_clear(void)
 /* Invalidate all pixels to force update */
 void display_invalidate(void)
 {
-        uint8_t i = 0;
-        do {
-		display.cur[i] = (uint8_t)~display.buf[i];
-                i++;
-        } while (i < DISPLAY_BUFLEN);
+	uint8_t i = 0;
+	do {
+		display.cur[i] = (uint8_t) ~ display.buf[i];
+		i++;
+	} while (i < DISPLAY_BUFLEN);
 }
 
 /* prepare a full display relax request */
@@ -211,13 +168,17 @@ void display_tick(void)
 {
 	static uint8_t ck = 0U;
 	if (bit_is_set(DISPLAY_STAT, DISBSY)) {
-		if (ck > DISPLAY_COLOVER) {
+		if (ck > DISPLAY_COLOVER || bit_is_set(DISPLAY_STAT, DISABRT)) {
 			req_relax();
+			if (bit_is_set(DISPLAY_STAT, DISABRT)) {
+				display_clear();
+			}
 			DISPLAY_STAT = 0U;
 		} else {
 			req_power_col(ck);
 			if (ck >= DISPLAY_COLPOWER)
-				req_relax_col((uint8_t)(ck - DISPLAY_COLPOWER));
+				req_relax_col((uint8_t)
+					      (ck - DISPLAY_COLPOWER));
 		}
 		req_send();
 		req_latch();
@@ -249,18 +210,18 @@ void display_init(void)
 /* Set all display buffers to the provided value */
 void display_fill(uint8_t ch)
 {
-        uint8_t i = 0;
-        do { 
-                display.buf[i] = ch;
-                i++;
-        } while (i < DISPLAY_BUFLEN);
+	uint8_t i = 0;
+	do {
+		display.buf[i] = ch;
+		i++;
+	} while (i < DISPLAY_BUFLEN);
 }
 
 /* Draw raw data at column */
 void display_data(uint8_t data, uint8_t col)
 {
 	uint8_t group;
-	uint8_t mask = (uint8_t)(1U << (col&0x7));
+	uint8_t mask = (uint8_t) (1U << (col & 0x7));
 	data &= 0x1f;
 	uint8_t poft;
 	uint8_t row;
@@ -316,8 +277,8 @@ void display_char(uint8_t ch, uint8_t col)
 				    (uint8_t) ((Font_5x4[foft] & mask) >>
 					       cshift);
 				display.buf[poft] =
-				    (uint8_t) (display.
-					       buf[poft] | tmp << pshift);
+				    (uint8_t) (display.buf[poft] | tmp <<
+					       pshift);
 				row++;
 			} while (row < DISPLAY_LINES);
 			/* remainder */
@@ -331,9 +292,8 @@ void display_char(uint8_t ch, uint8_t col)
 					    (uint8_t) (group +
 						       row * DISPLAY_GROUPS);
 					foft = (uint8_t) (oft + row);
-					tmp =
-					    (uint8_t) ((Font_5x4[foft] & mask)
-						       >> cshift);
+					tmp = (uint8_t) ((Font_5x4[foft] & mask)
+							 >> cshift);
 					display.buf[poft] =
 					    (uint8_t) (display.buf[poft] | tmp);
 					row++;
