@@ -13,7 +13,9 @@
 #include "ds3231.h"
 
 #define SYSTICK EEARL
-#define EXTERNAL EEARH		// EEAR8 only
+#define CLOCKSTAT EEDR
+#define PAUSE 0
+#define DISABLE 1
 #define BHOUR 3			// PORTD.3
 #define BMIN 7			// PORTD.7
 #define RTCINT 3		// PORTC.3
@@ -25,6 +27,10 @@
 #define BUFRI GPIOR2
 uint8_t rdbuf[BUFLEN];
 
+/* Function prototypes */
+void read_rtc(void);
+
+/* Interrupt handlers */
 ISR(TIMER0_COMPA_vect)
 {
 	++SYSTICK;
@@ -44,9 +50,29 @@ ISR(USART_RX_vect)
 		}
 		barrier();
 		BUFWI = look;
-	}			// ignore overrun input
-	// Flag external control of display
-	EXTERNAL = 1;
+	}			// Ignore overrun
+	CLOCKSTAT |= _BV(PAUSE);
+}
+
+/* Write byte to input queue */
+void queue_input(uint8_t ch)
+{
+	ATOMIC_BLOCK(ATOMIC_FORCEON) {
+		uint8_t look = (uint8_t) ((BUFWI + 1) & BUFMASK);
+		if (look != BUFRI) {
+			rdbuf[look] = ch;
+			barrier();
+			BUFWI = look;
+		}		// Ignore overrun
+	}
+}
+
+/* Write null-terminated string to input queue */
+void queue_string(uint8_t * msg)
+{
+	while (*msg) {
+		queue_input(*msg++);
+	}
 }
 
 /* Handle text input */
@@ -98,6 +124,21 @@ void handle_text(uint8_t msg)
 		// Data Link Escape
 		display_flush();
 		break;
+	case 0x11:
+		// DC1 : Turn on clock
+		CLOCKSTAT = 0;
+		queue_string((uint8_t *) "\x0d\x10\xc7\x4f\x4e\x0a");
+		read_rtc();
+		break;
+	case 0x12:
+		// DC2 : Zero seconds
+		ds3231_seconds(0x00);
+		break;
+	case 0x13:
+		// DC3 : Turn off clock
+		CLOCKSTAT |= _BV(DISABLE);
+		queue_string((uint8_t *) "\x0d\x10\xc5\x4f\x46\x46\x0a\x0c");
+		break;
 	case 0x20:
 		// Space
 		++pos;
@@ -137,10 +178,9 @@ uint8_t debounce(void)
 		uint8_t mask = tmp ^ bstate;
 		if (mask & _BV(BMIN)) {
 			if (tmp & _BV(BMIN)) {
-				flags |= _BV(0);	// release
+				flags |= _BV(0);	// Release
 			} else {
-				flags |= _BV(1);	// press
-				EXTERNAL = 0;
+				flags |= _BV(1);	// Press
 			}
 		}
 		if (mask & _BV(BHOUR)) {
@@ -148,7 +188,6 @@ uint8_t debounce(void)
 				flags |= _BV(2);
 			} else {
 				flags |= _BV(3);
-				EXTERNAL = 0;
 			}
 		}
 		bstate = tmp;
@@ -162,19 +201,6 @@ void send_serial(uint8_t ch)
 {
 	loop_until_bit_is_set(UCSR0A, UDRE0);
 	UDR0 = ch;
-}
-
-/* Write byte to input queue */
-void queue_input(uint8_t ch)
-{
-	ATOMIC_BLOCK(ATOMIC_FORCEON) {
-		uint8_t look = (uint8_t) ((BUFWI + 1) & BUFMASK);
-		if (look != BUFRI) {
-			rdbuf[look] = ch;
-			barrier();
-			BUFWI = look;
-		}		// ignore overrun
-	}
 }
 
 /* Read and process next byte from input queue */
@@ -191,29 +217,43 @@ void read_queue(void)
 	}
 }
 
-/* Update display with current time - cancels display update if in progress */
+/* Update display with current time - cancel display update if in progress */
 void update_time(struct ds3231_stat *stat)
 {
 	if (bit_is_set(DISPLAY_STAT, DISBSY)) {
 		display_abort();
 		queue_input(0x10);
 	}
+
+	// Transitions
 	if (stat->minute == 0x00) {
-		queue_input(0x07);
+		queue_input(0x07);	// Flash display
+	} else if (stat->minute == 0x30) {
+		queue_input(0x0c);	// Clear display
 	}
+
+	// Carriage return
 	queue_input(0x0d);
+
+	// Left pad + hour tens
 	if ((stat->hour) & 0x10) {
-		queue_input(0x20);
+		queue_input(0xc2);
 		queue_input(0x31);
 	} else {
-		queue_input(0xc3);
+		queue_input(0xc4);
 	}
+
+	// Hour ones
 	queue_input((uint8_t) (0x30 + ((stat->hour) & 0x0f)));
-	queue_input(0x08);
-	queue_input(0x3a);
-	queue_input(0x08);
+
+	// Separator
+	queue_string((uint8_t *) "\x8a\x20");
+
+	// Minutes
 	queue_input((uint8_t) (0x30 + ((stat->minute) >> 4)));
 	queue_input((uint8_t) (0x30 + ((stat->minute) & 0x0f)));
+
+	// Linefeed
 	queue_input(0x0a);
 }
 
@@ -222,8 +262,8 @@ void read_rtc(void)
 {
 	struct ds3231_stat ds;
 	if (ds3231_read(&ds)) {
-		if (EXTERNAL) {
-			EXTERNAL = 0;
+		if (CLOCKSTAT) {
+			CLOCKSTAT &= (uint8_t) ~ _BV(PAUSE);
 		} else {
 			update_time(&ds);
 		}
@@ -245,6 +285,7 @@ void increment_hour(void)
 	}
 	t1 = t1 | 0x40;
 	ds3231_hours(t1);
+	CLOCKSTAT = 0;
 	read_rtc();
 }
 
@@ -263,6 +304,7 @@ void increment_minute(void)
 	}
 	ds3231_seconds(0x00);
 	ds3231_minutes(t1);
+	CLOCKSTAT = 0;
 	read_rtc();
 }
 
@@ -271,12 +313,15 @@ void read_buttons(void)
 {
 	uint8_t flags = debounce();
 	if (flags) {
-		if (flags == 0x0a) {	// press both
-			queue_input(0x0c);
-			queue_input(0x10);
-		} else if (flags & 0x02) {	// press min
+		if (flags == 0x0a) {	// Press both
+			if (bit_is_set(CLOCKSTAT, DISABLE)) {
+				queue_input(0x11);
+			} else {
+				queue_input(0x13);
+			}
+		} else if (flags & 0x02) {	// Press min
 			increment_minute();
-		} else if (flags & 0x08) {	// press hr
+		} else if (flags & 0x08) {	// Press hr
 			increment_hour();
 		}
 	}
@@ -286,26 +331,29 @@ void main(void)
 {
 	uint8_t lt = 0;
 
-	/* init ~20Hz timer */
-	OCR0A = 96;
+	// Init ~20Hz timer
+	OCR0A = 97;
 	TCCR0A = _BV(WGM01);
 	TCCR0B = _BV(CS02) | _BV(CS00);
 	TIMSK0 |= _BV(OCIE0A);
 
-	/* init 9600,8n1 serial I/O w/ interrupt receive */
+	// Init 9600,8n1 serial I/O w/ interrupt receive
 	UBRR0L = 12;
 	UCSR0B = _BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0);
 	UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);
 
-	/* set up push buttons */
+	// Set up push buttons
 	PORTD = _BV(BHOUR) | _BV(BMIN);
 
-	sei();
+	// Init RTC + Display
 	ds3231_init();
 	display_init();
-	display_flush();
+
+	// Send initial animation
+	queue_string((uint8_t *) "\x0c\x10\xc7\x8e\x8c\xcb\x86\x8e\x0a");
 	read_rtc();
-	display_trigger();
+
+	// Main loop
 	do {
 		sleep_mode();
 		if (SYSTICK != lt) {

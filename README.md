@@ -23,6 +23,9 @@ are paused for a minute whenever serial data is received.
    - Form Feed (0x0c): Clear display and Return
    - Carriage Return (0x0d): Return
    - Data Link Escape (0x10): Flag update of all display pixels
+   - DC1 (0x11): Enable display of internal clock
+   - DC2 (0x12): Zero RTC seconds
+   - DC3 (0x13): Disable display of internal clock and clear display
    - Space (0x20): Move forward 1 column
 
 Note: On the Arduino Nano, DTR is wired to MCU reset. To avoid

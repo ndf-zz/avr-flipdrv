@@ -28,6 +28,8 @@ DIALECT = -std=c99 -pedantic
 
 # General code optimisation level
 OPTIMISE = -Os
+# Don't use jump table for switch (~74 bytes)
+#OPTIMISE += -fno-jump-tables
 # Mark functions and data so linker can omit dead sections
 OPTIMISE += -ffunction-sections -fdata-sections
 # Perform link-time optimisation
