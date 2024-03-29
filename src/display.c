@@ -15,7 +15,7 @@
 #define SPI_SCK		5
 
 /* during update sweep, keep this many columns powered at a time */
-#define DISPLAY_COLPOWER 4
+#define DISPLAY_COLPOWER 5
 #define DISPLAY_COLOVER (DISPLAY_COLS + DISPLAY_COLPOWER)
 
 struct display_stat display;

@@ -332,7 +332,7 @@ void main(void)
 	uint8_t lt = 0;
 
 	// Init ~20Hz timer
-	OCR0A = 97;
+	OCR0A = 96;
 	TCCR0A = _BV(WGM01);
 	TCCR0B = _BV(CS02) | _BV(CS00);
 	TIMSK0 |= _BV(OCIE0A);
