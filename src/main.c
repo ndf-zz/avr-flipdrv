@@ -247,7 +247,8 @@ void update_time(struct ds3231_stat *stat)
 	queue_input((uint8_t) (0x30 + ((stat->hour) & 0x0f)));
 
 	// Separator
-	queue_string((uint8_t *) "\x8a\x20");
+	queue_input(0x8a);
+	queue_input(0x20);
 
 	// Minutes
 	queue_input((uint8_t) (0x30 + ((stat->minute) >> 4)));
@@ -331,8 +332,8 @@ void main(void)
 {
 	uint8_t lt = 0;
 
-	// Init ~20Hz timer
-	OCR0A = 96;
+	// Init timer
+	OCR0A = 48;
 	TCCR0A = _BV(WGM01);
 	TCCR0B = _BV(CS02) | _BV(CS00);
 	TIMSK0 |= _BV(OCIE0A);
